@@ -1,1 +1,12 @@
-[]
+[
+  {
+    "id": 1,
+    "ticker": "GGAL",
+    "condition": "menor",
+    "target": 1500.0,
+    "market": "arg",
+    "triggered": false,
+    "created": "08/03 20:42",
+    "chat_id": "972423316"
+  }
+]
