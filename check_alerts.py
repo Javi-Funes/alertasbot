@@ -481,6 +481,9 @@ def process_updates():
 
     for update in updates:
         new_offset = update["update_id"] + 1
+        # Guardar offset INMEDIATAMENTE antes de procesar
+        # Si el workflow falla a mitad, no reprocesa el mismo mensaje
+        OFFSET_FILE.write_text(str(new_offset))
 
         # ── Callback de botón ──
         if "callback_query" in update:
@@ -724,7 +727,6 @@ def process_updates():
                 chat_id
             )
 
-    OFFSET_FILE.write_text(str(new_offset))
     save_alerts(alerts)
     print(f"✅ {len(updates)} update(s) procesado(s).")
 
