@@ -28,5 +28,175 @@
     "triggered": false,
     "created": "08/03 17:48 ET",
     "chat_id": "972423316"
+  },
+  {
+    "id": 4,
+    "ticker": "PBR",
+    "condition": "menor",
+    "target": 16.4,
+    "market": "usa",
+    "triggered": false,
+    "created": "08/03 19:06 ET",
+    "chat_id": "972423316"
+  },
+  {
+    "id": 5,
+    "ticker": "NU",
+    "condition": "menor",
+    "target": 12.5,
+    "market": "usa",
+    "triggered": false,
+    "created": "08/03 19:06 ET",
+    "chat_id": "972423316"
+  },
+  {
+    "id": 6,
+    "ticker": "GGAL",
+    "condition": "menor",
+    "target": 28.0,
+    "market": "usa",
+    "triggered": false,
+    "created": "08/03 19:06 ET",
+    "chat_id": "972423316"
+  },
+  {
+    "id": 7,
+    "ticker": "VIST",
+    "condition": "menor",
+    "target": 46.0,
+    "market": "usa",
+    "triggered": false,
+    "created": "08/03 19:06 ET",
+    "chat_id": "972423316"
+  },
+  {
+    "id": 8,
+    "ticker": "YPF",
+    "condition": "menor",
+    "target": 22.0,
+    "market": "usa",
+    "triggered": false,
+    "created": "08/03 19:06 ET",
+    "chat_id": "972423316"
+  },
+  {
+    "id": 9,
+    "ticker": "ORCL",
+    "condition": "menor",
+    "target": 125.0,
+    "market": "usa",
+    "triggered": false,
+    "created": "08/03 19:06 ET",
+    "chat_id": "972423316"
+  },
+  {
+    "id": 10,
+    "ticker": "GE",
+    "condition": "menor",
+    "target": 286.0,
+    "market": "usa",
+    "triggered": false,
+    "created": "08/03 19:06 ET",
+    "chat_id": "972423316"
+  },
+  {
+    "id": 11,
+    "ticker": "META",
+    "condition": "menor",
+    "target": 615.0,
+    "market": "usa",
+    "triggered": false,
+    "created": "08/03 19:06 ET",
+    "chat_id": "972423316"
+  },
+  {
+    "id": 12,
+    "ticker": "PG",
+    "condition": "menor",
+    "target": 142.0,
+    "market": "usa",
+    "triggered": false,
+    "created": "08/03 19:06 ET",
+    "chat_id": "972423316"
+  },
+  {
+    "id": 13,
+    "ticker": "AMZN",
+    "condition": "menor",
+    "target": 125.0,
+    "market": "usa",
+    "triggered": false,
+    "created": "08/03 19:06 ET",
+    "chat_id": "972423316"
+  },
+  {
+    "id": 14,
+    "ticker": "WMT",
+    "condition": "menor",
+    "target": 103.0,
+    "market": "usa",
+    "triggered": false,
+    "created": "08/03 19:06 ET",
+    "chat_id": "972423316"
+  },
+  {
+    "id": 15,
+    "ticker": "BBD",
+    "condition": "menor",
+    "target": 3.42,
+    "market": "usa",
+    "triggered": false,
+    "created": "08/03 19:06 ET",
+    "chat_id": "972423316"
+  },
+  {
+    "id": 16,
+    "ticker": "EWZ",
+    "condition": "menor",
+    "target": 26.0,
+    "market": "usa",
+    "triggered": false,
+    "created": "08/03 19:06 ET",
+    "chat_id": "972423316"
+  },
+  {
+    "id": 17,
+    "ticker": "SBS",
+    "condition": "menor",
+    "target": 23.0,
+    "market": "usa",
+    "triggered": false,
+    "created": "08/03 19:06 ET",
+    "chat_id": "972423316"
+  },
+  {
+    "id": 18,
+    "ticker": "ABEV",
+    "condition": "menor",
+    "target": 2.16,
+    "market": "usa",
+    "triggered": false,
+    "created": "08/03 19:06 ET",
+    "chat_id": "972423316"
+  },
+  {
+    "id": 19,
+    "ticker": "VIV",
+    "condition": "menor",
+    "target": 12.0,
+    "market": "usa",
+    "triggered": false,
+    "created": "08/03 19:06 ET",
+    "chat_id": "972423316"
+  },
+  {
+    "id": 20,
+    "ticker": "AXP",
+    "condition": "mayor",
+    "target": 312.0,
+    "market": "usa",
+    "triggered": false,
+    "created": "08/03 19:06 ET",
+    "chat_id": "972423316"
   }
 ]
