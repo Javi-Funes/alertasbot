@@ -268,14 +268,47 @@ def get_current_price(ticker: str, market: str) -> dict | None:
         return None
 
 
+def parse_ticker(raw: str) -> tuple[str, str | None]:
+    """
+    Parsea un ticker con prefijo opcional de mercado.
+
+    Ejemplos:
+        "NYSE:AXP"   → ("AXP",  "usa")
+        "BYMA:METR"  → ("METR", "arg")
+        "AMEX:EWZ"   → ("EWZ",  "usa")
+        "AXP"        → ("AXP",  None)   ← se detecta automático
+
+    Prefijos soportados:
+        USA  → NYSE, NASDAQ, AMEX, BATS
+        ARG  → BYMA, BCBA
+    """
+    raw = raw.upper().strip()
+
+    USA_PREFIXES = {"NYSE", "NASDAQ", "AMEX", "BATS"}
+    ARG_PREFIXES = {"BYMA", "BCBA"}
+
+    if ":" in raw:
+        prefix, ticker = raw.split(":", 1)
+        ticker = ticker.replace(".BA", "")
+        if prefix in ARG_PREFIXES:
+            return ticker, "arg"
+        if prefix in USA_PREFIXES:
+            return ticker, "usa"
+        # Prefijo desconocido → ignorar y detectar automático
+        return ticker, None
+
+    return raw.replace(".BA", ""), None
+
+
 def detect_market(ticker: str) -> str:
-    """Detecta mercado por ticker conocido."""
+    """Detecta mercado por ticker conocido (sin prefijo)."""
     AR_TICKERS = {
-        "GGAL","YPFD","PAMP","TXAR","ALUA","BBAR","BMA","BYMA",
+        "PAMP","TXAR","ALUA","BBAR","BMA","BYMA",
         "CEPU","CRES","CVH","EDN","HARG","LOMA","METR","MIRG",
-        "MOLI","SUPV","TECO2","TGNO4","TGSU2","TRAN","VALO","VIST",
+        "MOLI","SUPV","TECO2","TGNO4","TGSU2","TRAN","VALO",
         "IRSA","CADO","GBAN","BOLT","COME","DGCU2","FRAN","GCLA",
-        "INVJ","LONG","PATA","RICH","SEMI"
+        "INVJ","LONG","PATA","RICH","SEMI",
+        "TGNO4","INVJ","TRAN","EDN",
     }
     return "arg" if ticker.upper().replace(".BA", "") in AR_TICKERS else "usa"
 
@@ -451,14 +484,22 @@ AYUDA = (
     "   Verano USA:   11:30, 12:30 ... 17:30\n"
     "   Invierno USA: 12:30, 13:30 ... 18:30\n\n"
     "Comandos:\n\n"
-    "🔔 /alerta GGAL menor 1500\n"
     "🔔 /alerta AAPL mayor 210\n"
+    "🔔 /alerta NYSE:AXP menor 294\n"
+    "🔔 /alerta BYMA:METR menor 1450\n\n"
+    "📦 /carga  (carga masiva)\n"
+    "   /carga\n"
+    "   NYSE:AXP mayor 294.46\n"
+    "   BYMA:METR menor 1450\n\n"
     "💰 /precio GGAL\n"
     "📋 /lista\n"
     "🗑 /borrar #2\n"
     "🗑 /borrar GGAL\n"
     "🗑 /borrar all\n"
     "❓ /ayuda\n\n"
+    "Prefijos de mercado:\n"
+    "   NYSE: NASDAQ: AMEX: → 🇺🇸 USA\n"
+    "   BYMA: BCBA:         → 🇦🇷 Argentina\n\n"
     "Mercados: 🇦🇷 BYMA · 🇺🇸 NYSE/NASDAQ\n"
     "DST automático 🔄"
 )
@@ -544,12 +585,13 @@ def process_updates():
                 send_telegram(
                     "❌ Formato correcto:\n\n"
                     "/alerta GGAL menor 1500\n"
-                    "/alerta AAPL mayor 210",
+                    "/alerta NYSE:AXP mayor 294\n"
+                    "/alerta BYMA:METR menor 1450",
                     chat_id
                 )
                 continue
 
-            ticker    = parts[1].upper().replace(".BA", "")
+            ticker, forced_market = parse_ticker(parts[1])
             condition = parts[2].lower()
             try:
                 target = float(parts[3].replace(",", "."))
@@ -562,12 +604,12 @@ def process_updates():
                     "❌ La condición debe ser 'mayor' o 'menor'\n\n"
                     "Ejemplos:\n"
                     "/alerta GGAL menor 1500\n"
-                    "/alerta AAPL mayor 210",
+                    "/alerta NYSE:AXP mayor 294",
                     chat_id
                 )
                 continue
 
-            market = detect_market(ticker)
+            market = forced_market or detect_market(ticker)
             candle = get_last_closed_candle(ticker, market)
 
             if not candle:
@@ -621,6 +663,91 @@ def process_updates():
                 chat_id
             )
             print(f"   ✅ Alerta #{aid}: {ticker} {condition} {target} en {market}")
+
+        # ── /carga (carga masiva) ──
+        elif cmd == "/carga":
+            # Formato:
+            # /carga
+            # NYSE:AXP mayor 294.46
+            # BYMA:METR menor 1450
+            # PBR menor 16.50
+            lines = text.split("\n")[1:]  # saltar la primera línea (/carga)
+            lines = [l.strip() for l in lines if l.strip()]
+
+            if not lines:
+                send_telegram(
+                    "❌ Pegá las alertas después del comando:\n\n"
+                    "/carga\n"
+                    "NYSE:AXP mayor 294.46\n"
+                    "NYSE:PBR menor 16.50\n"
+                    "BYMA:METR menor 1450\n"
+                    "BYMA:VIST menor 23000",
+                    chat_id
+                )
+                continue
+
+            cargadas = []
+            errores  = []
+
+            for line in lines:
+                partes = line.split()
+                if len(partes) != 3:
+                    errores.append(f"❌ Formato inválido: '{line}'")
+                    continue
+
+                ticker_raw = partes[0]
+                condition  = partes[1].lower()
+                try:
+                    target = float(partes[2].replace(",", "."))
+                except:
+                    errores.append(f"❌ Precio inválido: '{line}'")
+                    continue
+
+                if condition not in ("mayor", "menor"):
+                    errores.append(f"❌ Condición inválida: '{line}' (usar mayor/menor)")
+                    continue
+
+                ticker, forced_market = parse_ticker(ticker_raw)
+                market = forced_market or detect_market(ticker)
+                candle = get_last_closed_candle(ticker, market)
+
+                if not candle:
+                    # Intentar el otro mercado
+                    other  = "usa" if market == "arg" else "arg"
+                    candle = get_last_closed_candle(ticker, other)
+                    if candle:
+                        market = other
+                    else:
+                        errores.append(f"⚠️ No encontré '{ticker}' en Yahoo Finance")
+                        continue
+
+                aid = next_id(alerts)
+                alerts.append({
+                    "id":        aid,
+                    "ticker":    ticker,
+                    "condition": condition,
+                    "target":    target,
+                    "market":    market,
+                    "triggered": False,
+                    "created":   datetime.now(TZ_NY).strftime("%d/%m %H:%M ET"),
+                    "chat_id":   chat_id,
+                })
+
+                cur   = "ARS" if market == "arg" else "USD"
+                emoji = "📈" if condition == "mayor" else "📉"
+                cargadas.append(f"  #{aid} {emoji} {ticker} {condition} {fmt_price(target, cur)} {market_emoji(market)}")
+
+            # Respuesta resumen
+            resumen = f"✅ {len(cargadas)} alerta(s) cargada(s):\n"
+            resumen += "\n".join(cargadas)
+            if errores:
+                resumen += f"\n\n{len(errores)} error(es):\n"
+                resumen += "\n".join(errores)
+
+            proximo = next_candle_close_ar()
+            resumen += f"\n\n⏰ Próximo chequeo: {proximo}"
+            send_telegram(resumen, chat_id)
+            print(f"   ✅ Carga masiva: {len(cargadas)} alertas, {len(errores)} errores")
 
         # ── /precio ──
         elif cmd == "/precio":
