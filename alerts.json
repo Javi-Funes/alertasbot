@@ -8,5 +8,15 @@
     "triggered": false,
     "created": "08/03 20:42",
     "chat_id": "972423316"
+  },
+  {
+    "id": 2,
+    "ticker": "AXP",
+    "condition": "mayor",
+    "target": 312.5,
+    "market": "usa",
+    "triggered": false,
+    "created": "08/03 20:44",
+    "chat_id": "972423316"
   }
 ]
