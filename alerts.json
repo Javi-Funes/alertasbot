@@ -18,5 +18,15 @@
     "triggered": false,
     "created": "08/03 20:44",
     "chat_id": "972423316"
+  },
+  {
+    "id": 3,
+    "ticker": "PBR",
+    "condition": "menor",
+    "target": 16.4,
+    "market": "usa",
+    "triggered": false,
+    "created": "08/03 17:48 ET",
+    "chat_id": "972423316"
   }
 ]
