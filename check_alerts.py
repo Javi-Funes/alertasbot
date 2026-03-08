@@ -5,12 +5,13 @@
 ╚══════════════════════════════════════════════════════╝
 
 Comandos disponibles desde Telegram:
-    /alerta GGAL menor 1500   → avisa cuando el precio baja de $1500
-    /alerta AAPL mayor 210    → avisa cuando el precio sube de $210
-    /precio GGAL              → muestra precio actual (bid, ask, último)
-    /lista                    → alertas activas
-    /borrar GGAL              → borra alertas de ese ticker
-    /borrar all               → borra todas
+    /alerta GGAL menor 1500   → avisa cuando GGAL baja de $1500
+    /alerta AAPL mayor 210    → avisa cuando AAPL sube de $210
+    /precio GGAL              → precio actual con bid y ask
+    /lista                    → alertas numeradas
+    /borrar #2                → borra la alerta número 2
+    /borrar GGAL              → borra todas las alertas de GGAL
+    /borrar all               → borra todas las alertas
     /ayuda                    → menú
 """
 
@@ -25,12 +26,12 @@ from pathlib import Path
 #  ⚙️  CONFIGURACIÓN
 # ══════════════════════════════════════════════════════
 
-BOT_TOKEN    = os.environ.get("BOT_TOKEN", "")
-CHAT_ID      = os.environ.get("CHAT_ID", "")
-GH_TOKEN     = os.environ.get("GH_TOKEN", "")
-REPO         = "javi-funes/alertasbot"
-ALERTS_FILE  = Path("alerts.json")
-OFFSET_FILE  = Path("tg_offset.txt")
+BOT_TOKEN   = os.environ.get("BOT_TOKEN", "")
+CHAT_ID     = os.environ.get("CHAT_ID", "")
+GH_TOKEN    = os.environ.get("GH_TOKEN", "")
+REPO        = "javi-funes/alertasbot"
+ALERTS_FILE = Path("alerts.json")
+OFFSET_FILE = Path("tg_offset.txt")
 
 # ══════════════════════════════════════════════════════
 #  🌐  DATA912.COM
@@ -178,6 +179,84 @@ def save_alerts(alerts: list):
     )
 
 
+def next_id(alerts: list) -> int:
+    if not alerts:
+        return 1
+    return max(a.get("id", 0) for a in alerts) + 1
+
+
+# ══════════════════════════════════════════════════════
+#  📋  FORMATO DE LISTA
+# ══════════════════════════════════════════════════════
+
+def format_lista(alerts: list) -> str:
+    activas    = [a for a in alerts if not a.get("triggered")]
+    disparadas = [a for a in alerts if a.get("triggered")]
+
+    if not alerts:
+        return (
+            "📋 No tenés alertas configuradas.\n\n"
+            "Usá:\n/alerta GGAL menor 1500\n/alerta AAPL mayor 210"
+        )
+
+    msg = "📋 Tus alertas:\n\n"
+
+    if activas:
+        msg += "🟢 Activas:\n"
+        for a in activas:
+            cur   = "ARS" if a.get("market") == "arg" else "USD"
+            emoji = "📈" if a["condition"] == "mayor" else "📉"
+            mkt   = market_emoji(a.get("market", ""))
+            msg  += f"  #{a['id']} {emoji} {a['ticker']} {a['condition']} {fmt_price(a['target'], cur)} {mkt}\n"
+
+    if disparadas:
+        msg += "\n✅ Ya disparadas:\n"
+        for a in disparadas:
+            cur   = "ARS" if a.get("market") == "arg" else "USD"
+            emoji = "📈" if a["condition"] == "mayor" else "📉"
+            mkt   = market_emoji(a.get("market", ""))
+            msg  += f"  #{a['id']} {emoji} {a['ticker']} {a['condition']} {fmt_price(a['target'], cur)} {mkt}\n"
+
+    msg += "\nPara borrar: /borrar #2"
+    return msg
+
+
+# ══════════════════════════════════════════════════════
+#  🚨  MENSAJE DE ALERTA DISPARADA
+# ══════════════════════════════════════════════════════
+
+def format_alerta_disparada(alert: dict, data: dict) -> str:
+    condition = alert["condition"]
+    ticker    = alert["ticker"]
+    target    = float(alert["target"])
+    cur       = data["currency"]
+    pct       = data["pct_change"]
+    precio    = data["price"]
+    sign      = "+" if pct >= 0 else ""
+    arrow     = "🟢 ▲" if pct >= 0 else "🔴 ▼"
+    aid       = alert.get("id", "?")
+
+    # Texto descriptivo según condición
+    if condition == "mayor":
+        accion = f"{ticker} superó tu objetivo"
+        emoji  = "📈"
+    else:
+        accion = f"{ticker} bajó a tu objetivo"
+        emoji  = "📉"
+
+    return (
+        f"🚨 ALERTA #{aid} DISPARADA!\n"
+        f"{'─' * 24}\n\n"
+        f"{emoji} {accion}\n\n"
+        f"🏛 Mercado:       {market_label(data['market'])}\n"
+        f"🎯 Tu objetivo:   {condition} a {fmt_price(target, cur)}\n"
+        f"💰 Precio actual: {fmt_price(precio, cur)}\n"
+        f"📊 Cambio hoy:    {arrow} {sign}{pct:.2f}%\n"
+        f"📋 Bid: {fmt_price(data['bid'], cur)} · Ask: {fmt_price(data['ask'], cur)}\n\n"
+        f"🕐 {datetime.now().strftime('%d/%m/%Y %H:%M')}"
+    )
+
+
 # ══════════════════════════════════════════════════════
 #  📲  PROCESAR MENSAJES
 # ══════════════════════════════════════════════════════
@@ -186,17 +265,19 @@ AYUDA = (
     "📈 Bot de Alertas de Acciones\n\n"
     "Comandos:\n\n"
     "🔔 /alerta GGAL menor 1500\n"
-    "   → avisa cuando GGAL baja de $1500\n\n"
+    "   avisa cuando GGAL baja de $1500\n\n"
     "🔔 /alerta AAPL mayor 210\n"
-    "   → avisa cuando AAPL sube de $210\n\n"
+    "   avisa cuando AAPL sube de $210\n\n"
     "💰 /precio GGAL\n"
-    "   → precio actual con bid y ask\n\n"
+    "   precio actual con bid y ask\n\n"
     "📋 /lista\n"
-    "   → ver todas tus alertas activas\n\n"
+    "   ver alertas con su número\n\n"
+    "🗑 /borrar #2\n"
+    "   borrar la alerta número 2\n\n"
     "🗑 /borrar GGAL\n"
-    "   → borrar alertas de ese ticker\n\n"
+    "   borrar todas las alertas de GGAL\n\n"
     "🗑 /borrar all\n"
-    "   → borrar todas las alertas\n\n"
+    "   borrar todas las alertas\n\n"
     "Mercados: 🇦🇷 BYMA · 🇺🇸 NYSE/NASDAQ · 🔵 ADRs\n"
     "Chequeo automático cada 5 minutos ⏱"
 )
@@ -224,20 +305,21 @@ def process_updates(all_data: dict):
             chat_id = str(cb["message"]["chat"]["id"])
             msg_id  = cb["message"]["message_id"]
 
-            # formato: "market:arg:GGAL:1500:menor"
             if cb_data.startswith("market:"):
-                parts      = cb_data.split(":")
-                market     = parts[1]
-                ticker     = parts[2]
-                target     = float(parts[3])
-                condition  = parts[4]  # "mayor" o "menor"
+                parts     = cb_data.split(":")
+                market    = parts[1]
+                ticker    = parts[2]
+                target    = float(parts[3])
+                condition = parts[4]
 
                 price_data = get_price_in_market(ticker, market, all_data)
                 if not price_data:
                     answer_callback(cb_id, "❌ No se encontró el ticker en ese mercado")
                     continue
 
+                aid = next_id(alerts)
                 alerts.append({
+                    "id":        aid,
                     "ticker":    ticker,
                     "condition": condition,
                     "target":    target,
@@ -249,9 +331,9 @@ def process_updates(all_data: dict):
 
                 cur   = price_data["currency"]
                 emoji = "📈" if condition == "mayor" else "📉"
-                answer_callback(cb_id, "✅ Alerta guardada!")
+                answer_callback(cb_id, f"✅ Alerta #{aid} guardada!")
                 edit_message(chat_id, msg_id,
-                    f"✅ Alerta guardada!\n\n"
+                    f"✅ Alerta #{aid} guardada!\n\n"
                     f"{emoji} {ticker} — {market_label(market)}\n"
                     f"Avisame cuando sea {condition} a {fmt_price(target, cur)}\n\n"
                     f"Precio actual: {fmt_price(price_data['price'], cur)}\n"
@@ -259,8 +341,7 @@ def process_updates(all_data: dict):
                     f"Ask: {fmt_price(price_data['ask'], cur)}\n\n"
                     f"Te aviso en máximo 5 min si se dispara 🔔"
                 )
-                print(f"   ✅ Alerta confirmada: {ticker} {condition} {target} en {market}")
-
+                print(f"   ✅ Alerta #{aid}: {ticker} {condition} {target} en {market}")
             continue
 
         # ── Mensaje de texto ──
@@ -277,7 +358,6 @@ def process_updates(all_data: dict):
 
         # ── /alerta TICKER mayor|menor PRECIO ──
         if cmd == "/alerta":
-            # Formato: /alerta GGAL menor 1500
             if len(parts) != 4:
                 send_telegram(
                     "❌ Formato correcto:\n\n"
@@ -319,13 +399,14 @@ def process_updates(all_data: dict):
                 continue
 
             if len(markets_found) == 1:
-                # Solo un mercado → guardar directo
                 market     = markets_found[0]
                 price_data = get_price_in_market(ticker, market, all_data)
                 cur        = price_data["currency"]
                 emoji      = "📈" if condition == "mayor" else "📉"
+                aid        = next_id(alerts)
 
                 alerts.append({
+                    "id":        aid,
                     "ticker":    ticker,
                     "condition": condition,
                     "target":    target,
@@ -336,7 +417,7 @@ def process_updates(all_data: dict):
                 })
 
                 send_telegram(
-                    f"✅ Alerta guardada!\n\n"
+                    f"✅ Alerta #{aid} guardada!\n\n"
                     f"{emoji} {ticker} — {market_label(market)}\n"
                     f"Avisame cuando sea {condition} a {fmt_price(target, cur)}\n\n"
                     f"Precio actual: {fmt_price(price_data['price'], cur)}\n"
@@ -345,9 +426,9 @@ def process_updates(all_data: dict):
                     f"Te aviso en máximo 5 min si se dispara 🔔",
                     chat_id
                 )
+                print(f"   ✅ Alerta #{aid}: {ticker} {condition} {target} en {market}")
 
             else:
-                # Varios mercados → preguntar con botones
                 buttons = []
                 for market in markets_found:
                     price_data = get_price_in_market(ticker, market, all_data)
@@ -377,8 +458,7 @@ def process_updates(all_data: dict):
                 send_telegram(f"❌ No encontré '{ticker}' en ningún mercado.", chat_id)
                 continue
 
-            msg_text = f"💰 {ticker}\n"
-            msg_text += "─" * 20 + "\n"
+            msg_text = f"💰 {ticker}\n" + "─" * 22 + "\n"
             for market in markets_found:
                 d     = get_price_in_market(ticker, market, all_data)
                 pct   = d["pct_change"]
@@ -397,59 +477,73 @@ def process_updates(all_data: dict):
 
         # ── /lista ──
         elif cmd == "/lista":
-            activas    = [a for a in alerts if not a.get("triggered")]
-            disparadas = [a for a in alerts if a.get("triggered")]
-
-            if not alerts:
-                send_telegram(
-                    "📋 No tenés alertas configuradas.\n\n"
-                    "Usá:\n/alerta GGAL menor 1500\n/alerta AAPL mayor 210",
-                    chat_id
-                )
-                continue
-
-            msg_text = "📋 Tus alertas:\n\n"
-            if activas:
-                msg_text += "🟢 Activas:\n"
-                for a in activas:
-                    cur      = "ARS" if a.get("market") == "arg" else "USD"
-                    emoji    = "📈" if a["condition"] == "mayor" else "📉"
-                    msg_text += f"  {emoji} {a['ticker']} {a['condition']} {fmt_price(a['target'], cur)} {market_emoji(a.get('market',''))}\n"
-            if disparadas:
-                msg_text += "\n✅ Disparadas:\n"
-                for a in disparadas:
-                    cur      = "ARS" if a.get("market") == "arg" else "USD"
-                    emoji    = "📈" if a["condition"] == "mayor" else "📉"
-                    msg_text += f"  {emoji} {a['ticker']} {a['condition']} {fmt_price(a['target'], cur)} {market_emoji(a.get('market',''))}\n"
-            send_telegram(msg_text, chat_id)
+            send_telegram(format_lista(alerts), chat_id)
 
         # ── /borrar ──
         elif cmd == "/borrar":
             if len(parts) != 2:
-                send_telegram("❌ Uso: /borrar GGAL  o  /borrar all", chat_id)
+                send_telegram(
+                    "❌ Uso:\n"
+                    "/borrar #2     → borra la alerta número 2\n"
+                    "/borrar GGAL   → borra todas las de GGAL\n"
+                    "/borrar all    → borra todas",
+                    chat_id
+                )
                 continue
 
-            arg = parts[1].upper()
-            if arg == "ALL":
+            arg = parts[1]
+
+            if arg.startswith("#"):
+                try:
+                    aid = int(arg[1:])
+                except:
+                    send_telegram("❌ Número de alerta inválido. Ej: /borrar #2", chat_id)
+                    continue
+
+                match = next((a for a in alerts if a.get("id") == aid), None)
+                if not match:
+                    send_telegram(
+                        f"❌ No encontré la alerta #{aid}.\n\n"
+                        f"Usá /lista para ver tus alertas.",
+                        chat_id
+                    )
+                    continue
+
+                alerts.remove(match)
+                cur   = "ARS" if match.get("market") == "arg" else "USD"
+                emoji = "📈" if match["condition"] == "mayor" else "📉"
+                send_telegram(
+                    f"🗑 Alerta #{aid} eliminada:\n"
+                    f"{emoji} {match['ticker']} {match['condition']} {fmt_price(match['target'], cur)} {market_emoji(match.get('market',''))}",
+                    chat_id
+                )
+
+            elif arg.upper() == "ALL":
                 n = len(alerts)
                 alerts.clear()
                 send_telegram(f"🗑 {n} alerta(s) eliminadas.", chat_id)
+
             else:
+                ticker = arg.upper()
                 antes  = len(alerts)
-                alerts = [a for a in alerts if a["ticker"] != arg]
+                alerts = [a for a in alerts if a["ticker"] != ticker]
                 elim   = antes - len(alerts)
                 if elim:
-                    send_telegram(f"🗑 {elim} alerta(s) de '{arg}' eliminadas.", chat_id)
+                    send_telegram(f"🗑 {elim} alerta(s) de '{ticker}' eliminadas.", chat_id)
                 else:
-                    send_telegram(f"❌ No encontré alertas para '{arg}'", chat_id)
+                    send_telegram(
+                        f"❌ No encontré alertas para '{ticker}'.\n\n"
+                        f"Usá /lista para ver tus alertas.",
+                        chat_id
+                    )
 
-        # ── /ayuda o /start ──
         elif cmd in ("/ayuda", "/start"):
             send_telegram(AYUDA, chat_id)
 
         else:
             send_telegram(
-                "❓ No entendí ese comando.\n\nEscribí /ayuda para ver los comandos disponibles.",
+                "❓ No entendí ese comando.\n\n"
+                "Escribí /ayuda para ver los comandos disponibles.",
                 chat_id
             )
 
@@ -490,9 +584,8 @@ def check_prices(all_data: dict):
         precio    = data["price"]
         condition = alert["condition"]
         target    = float(alert["target"])
-        cur       = data["currency"]
 
-        print(f"   {ticker}: {fmt_price(precio, cur)} — objetivo {condition} {fmt_price(target, cur)}")
+        print(f"   #{alert.get('id','?')} {ticker}: {fmt_price(precio, data['currency'])} — objetivo {condition} {fmt_price(target, data['currency'])}")
 
         fired = (condition == "mayor" and precio >= target) or \
                 (condition == "menor" and precio <= target)
@@ -500,23 +593,12 @@ def check_prices(all_data: dict):
         if fired:
             alert["triggered"]    = True
             alert["triggered_at"] = datetime.now().strftime("%d/%m/%Y %H:%M")
-            pct   = data["pct_change"]
-            sign  = "+" if pct >= 0 else ""
-            emoji = "📈" if condition == "mayor" else "📉"
-            dest  = alert.get("chat_id", CHAT_ID)
+            dest = alert.get("chat_id", CHAT_ID)
 
-            msg = (
-                f"🚨 ALERTA DISPARADA!\n\n"
-                f"{emoji} {ticker} es {condition} al objetivo\n\n"
-                f"💰 Precio actual: {fmt_price(precio, cur)}\n"
-                f"🎯 Objetivo:      {condition} {fmt_price(target, cur)}\n"
-                f"📊 Cambio hoy:    {sign}{pct:.2f}%\n"
-                f"🏛 Mercado:       {market_label(data['market'])}\n\n"
-                f"🕐 {datetime.now().strftime('%d/%m/%Y %H:%M')}"
-            )
-            ok = send_telegram(msg, dest)
+            msg = format_alerta_disparada(alert, data)
+            ok  = send_telegram(msg, dest)
             if ok:
-                print(f"   🚨 DISPARADA: {ticker} @ {fmt_price(precio, cur)}")
+                print(f"   🚨 DISPARADA #{alert.get('id')}: {ticker} @ {fmt_price(precio, data['currency'])}")
                 fired_count += 1
 
     save_alerts(alerts)
