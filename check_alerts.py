@@ -271,30 +271,30 @@ def get_current_price(ticker: str, market: str) -> dict | None:
 def parse_ticker(raw: str) -> tuple[str, str | None]:
     """
     Parsea un ticker con prefijo opcional de mercado.
+    Tolera espacios entre el prefijo y el ticker.
 
     Ejemplos:
-        "NYSE:AXP"   → ("AXP",  "usa")
-        "BYMA:METR"  → ("METR", "arg")
-        "AMEX:EWZ"   → ("EWZ",  "usa")
-        "AXP"        → ("AXP",  None)   ← se detecta automático
+        "US:AXP"    → ("AXP",  "usa")
+        "US: AXP"   → ("AXP",  "usa")  ← espacio tolerado
+        "AR:METR"   → ("METR", "arg")
+        "AR: METR"  → ("METR", "arg")  ← espacio tolerado
+        "AXP"       → ("AXP",  None)   ← se detecta automático
 
     Prefijos soportados:
-        USA  → NYSE, NASDAQ, AMEX, BATS
-        ARG  → BYMA, BCBA
+        US:  → mercado USA (NYSE/NASDAQ)
+        AR:  → mercado Argentina (BYMA)
     """
     raw = raw.upper().strip()
 
-    USA_PREFIXES = {"NYSE", "NASDAQ", "AMEX", "BATS"}
-    ARG_PREFIXES = {"BYMA", "BCBA"}
-
     if ":" in raw:
         prefix, ticker = raw.split(":", 1)
-        ticker = ticker.replace(".BA", "")
-        if prefix in ARG_PREFIXES:
+        prefix = prefix.strip()
+        ticker = ticker.strip().replace(".BA", "")
+        if prefix == "AR":
             return ticker, "arg"
-        if prefix in USA_PREFIXES:
+        if prefix == "US":
             return ticker, "usa"
-        # Prefijo desconocido → ignorar y detectar automático
+        # Prefijo desconocido → detectar automático
         return ticker, None
 
     return raw.replace(".BA", ""), None
@@ -485,12 +485,12 @@ AYUDA = (
     "   Invierno USA: 12:30, 13:30 ... 18:30\n\n"
     "Comandos:\n\n"
     "🔔 /alerta AAPL mayor 210\n"
-    "🔔 /alerta NYSE:AXP menor 294\n"
-    "🔔 /alerta BYMA:METR menor 1450\n\n"
+    "🔔 /alerta US:AXP menor 294\n"
+    "🔔 /alerta AR:METR menor 1450\n\n"
     "📦 /carga  (carga masiva)\n"
     "   /carga\n"
-    "   NYSE:AXP mayor 294.46\n"
-    "   BYMA:METR menor 1450\n\n"
+    "   US:AXP mayor 294.46\n"
+    "   AR:METR menor 1450\n\n"
     "💰 /precio GGAL\n"
     "📋 /lista\n"
     "🗑 /borrar #2\n"
@@ -498,8 +498,8 @@ AYUDA = (
     "🗑 /borrar all\n"
     "❓ /ayuda\n\n"
     "Prefijos de mercado:\n"
-    "   NYSE: NASDAQ: AMEX: → 🇺🇸 USA\n"
-    "   BYMA: BCBA:         → 🇦🇷 Argentina\n\n"
+    "   US:ticker → 🇺🇸 USA\n"
+    "   AR:ticker → 🇦🇷 Argentina\n\n"
     "Mercados: 🇦🇷 BYMA · 🇺🇸 NYSE/NASDAQ\n"
     "DST automático 🔄"
 )
@@ -585,26 +585,49 @@ def process_updates():
                 send_telegram(
                     "❌ Formato correcto:\n\n"
                     "/alerta GGAL menor 1500\n"
-                    "/alerta NYSE:AXP mayor 294\n"
-                    "/alerta BYMA:METR menor 1450",
+                    "/alerta US:AXP mayor 294\n"
+                    "/alerta AR:METR menor 1450",
                     chat_id
                 )
                 continue
 
-            ticker, forced_market = parse_ticker(parts[1])
-            condition = parts[2].lower()
-            try:
-                target = float(parts[3].replace(",", "."))
-            except:
-                send_telegram("❌ El precio debe ser un número. Ej: 1500 o 210.50", chat_id)
+            # Tolerancia: "US: GGAL menor 28" → unir "US:" + "GGAL"
+            # Si parts[1] termina en ":" y parts[2] no es mayor/menor,
+            # asumimos que es el ticker separado por espacio
+            if parts[1].endswith(":") and len(parts) == 5 and parts[2].upper() not in ("MAYOR", "MENOR"):
+                raw_ticker = parts[1] + parts[2]
+                condition  = parts[3].lower()
+                try:
+                    target = float(parts[4].replace(",", "."))
+                except:
+                    send_telegram("❌ El precio debe ser un número. Ej: 1500 o 210.50", chat_id)
+                    continue
+            elif len(parts) != 4:
+                send_telegram(
+                    "❌ Formato correcto:\n\n"
+                    "/alerta GGAL menor 1500\n"
+                    "/alerta US:AXP mayor 294\n"
+                    "/alerta AR:METR menor 1450",
+                    chat_id
+                )
                 continue
+            else:
+                raw_ticker = parts[1]
+                condition  = parts[2].lower()
+                try:
+                    target = float(parts[3].replace(",", "."))
+                except:
+                    send_telegram("❌ El precio debe ser un número. Ej: 1500 o 210.50", chat_id)
+                    continue
+
+            ticker, forced_market = parse_ticker(raw_ticker)
 
             if condition not in ("mayor", "menor"):
                 send_telegram(
                     "❌ La condición debe ser 'mayor' o 'menor'\n\n"
                     "Ejemplos:\n"
                     "/alerta GGAL menor 1500\n"
-                    "/alerta NYSE:AXP mayor 294",
+                    "/alerta US:AXP mayor 294",
                     chat_id
                 )
                 continue
@@ -678,10 +701,10 @@ def process_updates():
                 send_telegram(
                     "❌ Pegá las alertas después del comando:\n\n"
                     "/carga\n"
-                    "NYSE:AXP mayor 294.46\n"
-                    "NYSE:PBR menor 16.50\n"
-                    "BYMA:METR menor 1450\n"
-                    "BYMA:VIST menor 23000",
+                    "US:AXP mayor 294.46\n"
+                    "US:PBR menor 16.50\n"
+                    "AR:METR menor 1450\n"
+                    "AR:VIST menor 23000",
                     chat_id
                 )
                 continue
