@@ -714,16 +714,26 @@ def process_updates():
 
             for line in lines:
                 partes = line.split()
-                if len(partes) != 3:
-                    errores.append(f"❌ Formato inválido: '{line}'")
-                    continue
 
-                ticker_raw = partes[0]
-                condition  = partes[1].lower()
-                try:
-                    target = float(partes[2].replace(",", "."))
-                except:
-                    errores.append(f"❌ Precio inválido: '{line}'")
+                # Tolerancia: "US: GGAL menor 28" → 4 partes en vez de 3
+                if len(partes) == 4 and partes[0].endswith(":") and partes[1].upper() not in ("MAYOR", "MENOR"):
+                    ticker_raw = partes[0] + partes[1]
+                    condition  = partes[2].lower()
+                    try:
+                        target = float(partes[3].replace(",", "."))
+                    except:
+                        errores.append(f"❌ Precio inválido: '{line}'")
+                        continue
+                elif len(partes) == 3:
+                    ticker_raw = partes[0]
+                    condition  = partes[1].lower()
+                    try:
+                        target = float(partes[2].replace(",", "."))
+                    except:
+                        errores.append(f"❌ Precio inválido: '{line}'")
+                        continue
+                else:
+                    errores.append(f"❌ Formato inválido: '{line}'")
                     continue
 
                 if condition not in ("mayor", "menor"):
