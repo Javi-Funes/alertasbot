@@ -6,9 +6,19 @@
 ║   Mercado: NYSE 9:30-16:00 ET (DST automático)       ║
 ╚══════════════════════════════════════════════════════╝
 
-Horario de cierres de vela (hora ET):
-    10:30 → primera vela (abre 9:30, cierra 10:30)
-    11:30, 12:30, 13:30, 14:30, 15:30, 16:30
+CORRECCIONES:
+  - Timestamp vela: Yahoo devuelve inicio de vela, se suma 1h para mostrar cierre real
+  - next_candle_close_ar: considera mercado cerrado y fines de semana
+  - Próximo chequeo muestra día y hora correctos
+
+Cierres de vela NYSE (ET → AR verano / AR invierno):
+    10:30 → 11:30 / 12:30   ← primera vela
+    11:30 → 12:30 / 13:30
+    12:30 → 13:30 / 14:30
+    13:30 → 14:30 / 15:30
+    14:30 → 15:30 / 16:30
+    15:30 → 16:30 / 17:30
+    16:30 → 17:30 / 18:30   ← última vela
 
 Comandos Telegram:
     /alerta GGAL menor 1500
@@ -25,7 +35,7 @@ import json
 import os
 import sys
 import requests
-from datetime import datetime, timezone
+from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -38,20 +48,25 @@ CHAT_ID     = os.environ.get("CHAT_ID", "")
 ALERTS_FILE = Path("alerts.json")
 OFFSET_FILE = Path("tg_offset.txt")
 
-# Zona horaria de Nueva York — maneja DST automáticamente
-# En verano USA (mar-nov): UTC-4  → Argentina UTC-3 = diferencia 1h
-# En invierno USA (nov-mar): UTC-5 → Argentina UTC-3 = diferencia 2h
 TZ_NY = ZoneInfo("America/New_York")
+TZ_AR = ZoneInfo("America/Argentina/Buenos_Aires")
 
-# Horario NYSE
 MARKET_OPEN_H  = 9
 MARKET_OPEN_M  = 30
 MARKET_CLOSE_H = 16
-MARKET_CLOSE_M = 30  # última vela cierra a las 16:30
+MARKET_CLOSE_M = 30  # última vela cierra a las 16:30 ET
 
-# Tolerancia en minutos después del cierre de vela
-# GitHub Actions no es exacto, puede correr hasta 8 min tarde
 CANDLE_TOLERANCE_MIN = 8
+
+DIAS_ES = {
+    "Monday":    "lunes",
+    "Tuesday":   "martes",
+    "Wednesday": "miércoles",
+    "Thursday":  "jueves",
+    "Friday":    "viernes",
+    "Saturday":  "sábado",
+    "Sunday":    "domingo",
+}
 
 
 # ══════════════════════════════════════════════════════
@@ -66,7 +81,6 @@ def now_ny() -> datetime:
 def is_market_open() -> bool:
     """True si el mercado NYSE está abierto ahora."""
     now = now_ny()
-    # Fines de semana no hay mercado
     if now.weekday() >= 5:
         return False
     open_time  = now.replace(hour=MARKET_OPEN_H,  minute=MARKET_OPEN_M,  second=0, microsecond=0)
@@ -79,35 +93,21 @@ def candle_just_closed() -> tuple[bool, datetime | None]:
     Retorna (True, hora_cierre) si una vela de 1h acaba de cerrar.
 
     Las velas del NYSE cierran a los :30 de cada hora:
-        10:30 → primera vela del día
-        11:30, 12:30, 13:30, 14:30, 15:30 → velas intermedias
-        16:30 → última vela del día
+        10:30 → primera vela (abre 9:30)
+        11:30, 12:30, 13:30, 14:30, 15:30
+        16:30 → última vela
 
-    Se considera "recién cerrada" si estamos dentro de los
-    primeros CANDLE_TOLERANCE_MIN minutos posteriores al :30.
-
-    Ejemplo: son las 14:33 ET → la vela de las 14:30 acaba de cerrar ✅
-             son las 14:15 ET → no hay vela recién cerrada ❌
+    Detecta el cierre si estamos entre HH:30 y HH:38 ET.
     """
     now = now_ny()
 
-    # Solo días hábiles
     if now.weekday() >= 5:
         return False, None
 
-    # Definir ventana de cierre: minuto :30 + tolerancia
-    # Ejemplo: cierre a las 14:30, tolerancia 8 min → válido entre 14:30 y 14:38
-    candle_close_minute = 30
-
-    if candle_close_minute <= now.minute <= candle_close_minute + CANDLE_TOLERANCE_MIN:
-        # La vela cerró a las HH:30 de esta hora
-        closed_at = now.replace(minute=candle_close_minute, second=0, microsecond=0)
-
-        # Primera vela válida: 10:30 (abre a las 9:30)
+    if 30 <= now.minute <= 30 + CANDLE_TOLERANCE_MIN:
+        closed_at   = now.replace(minute=30, second=0, microsecond=0)
         first_close = now.replace(hour=10, minute=30, second=0, microsecond=0)
-        # Última vela válida: 16:30 (cierra el mercado)
         last_close  = now.replace(hour=16, minute=30, second=0, microsecond=0)
-
         if first_close <= closed_at <= last_close:
             return True, closed_at
 
@@ -115,30 +115,48 @@ def candle_just_closed() -> tuple[bool, datetime | None]:
 
 
 def next_candle_close_ar() -> str:
-    """Retorna la próxima hora de cierre de vela en hora Argentina."""
-    now   = now_ny()
-    # Offset actual de Argentina vs NY (ZoneInfo lo calcula automáticamente)
-    from zoneinfo import ZoneInfo
-    TZ_AR = ZoneInfo("America/Argentina/Buenos_Aires")
-    now_ar = datetime.now(TZ_AR)
+    """
+    Retorna la próxima hora de cierre de vela en hora Argentina.
+    Considera correctamente si el mercado está cerrado o es fin de semana.
+    """
+    now = now_ny()
 
-    # Diferencia horaria actual entre NY y AR
-    offset_hours = int((now_ar.utcoffset() - now.utcoffset()).total_seconds() / 3600)
+    market_close_today = now.replace(
+        hour=MARKET_CLOSE_H, minute=MARKET_CLOSE_M, second=0, microsecond=0
+    )
 
-    # Próximo cierre en ET
-    if now.minute < 30:
-        next_close_et_h = now.hour
-        next_close_et_m = 30
-    elif now.minute <= 30 + CANDLE_TOLERANCE_MIN:
-        # Estamos en ventana de cierre actual
-        next_close_et_h = now.hour + 1
-        next_close_et_m = 30
+    # Calcular próximo cierre de vela en ET
+    if is_market_open():
+        if now.minute < 30:
+            # Próximo cierre: esta misma hora a los :30
+            next_et = now.replace(minute=30, second=0, microsecond=0)
+        else:
+            # Ya pasó el :30 de esta hora → próximo es hora siguiente a los :30
+            next_et = (now + timedelta(hours=1)).replace(minute=30, second=0, microsecond=0)
+
+        # Si el próximo cierre supera el cierre del mercado de hoy
+        if next_et > market_close_today:
+            next_et = _next_business_day_open(now)
     else:
-        next_close_et_h = now.hour + 1
-        next_close_et_m = 30
+        # Mercado cerrado → próximo día hábil a las 10:30 ET (primera vela)
+        next_et = _next_business_day_open(now)
 
-    next_close_ar_h = (next_close_et_h + offset_hours) % 24
-    return f"{next_close_ar_h:02d}:{next_close_et_m:02d}"
+    # Convertir a hora Argentina
+    next_ar  = next_et.astimezone(TZ_AR)
+    dia_en   = next_ar.strftime("%A")
+    dia_es   = DIAS_ES.get(dia_en, dia_en)
+    return f"{next_ar.strftime('%H:%M')} del {dia_es} {next_ar.strftime('%d/%m')}"
+
+
+def _next_business_day_open(from_dt: datetime) -> datetime:
+    """Retorna el próximo día hábil a las 10:30 ET (primera vela)."""
+    candidate = from_dt
+    for _ in range(7):
+        candidate = candidate + timedelta(days=1)
+        if candidate.weekday() < 5:
+            return candidate.replace(hour=10, minute=30, second=0, microsecond=0)
+    # fallback
+    return from_dt.replace(hour=10, minute=30, second=0, microsecond=0)
 
 
 # ══════════════════════════════════════════════════════
@@ -146,21 +164,25 @@ def next_candle_close_ar() -> str:
 # ══════════════════════════════════════════════════════
 
 def yahoo_ticker(ticker: str, market: str) -> str:
-    """Formato Yahoo Finance: BYMA usa sufijo .BA"""
-    if market == "arg":
-        return f"{ticker}.BA"
-    return ticker
+    """BYMA Argentina usa sufijo .BA en Yahoo Finance."""
+    return f"{ticker}.BA" if market == "arg" else ticker
 
 
 def get_last_closed_candle(ticker: str, market: str) -> dict | None:
     """
     Obtiene la última vela de 1h CERRADA de Yahoo Finance.
-    Retorna dict con open, high, low, close, volume, timestamp.
+
+    IMPORTANTE: Yahoo Finance devuelve el timestamp del INICIO de la vela.
+    Se suma 1 hora para mostrar el timestamp de CIERRE real.
+
+    Ejemplo: vela que abre 15:30 ET y cierra 16:30 ET
+             Yahoo devuelve: 15:30 ET
+             Mostramos:      16:30 ET  ← cierre real
     """
     yf_ticker = yahoo_ticker(ticker, market)
     try:
         url     = f"https://query1.finance.yahoo.com/v8/finance/chart/{yf_ticker}"
-        params  = {"interval": "1h", "range": "2d"}
+        params  = {"interval": "1h", "range": "5d"}
         headers = {"User-Agent": "Mozilla/5.0"}
         resp    = requests.get(url, params=params, headers=headers, timeout=15)
         resp.raise_for_status()
@@ -187,17 +209,23 @@ def get_last_closed_candle(ticker: str, market: str) -> dict | None:
         # Buscar la última vela con datos completos
         for i in range(len(timestamps) - 1, -1, -1):
             if closes[i] is not None and opens[i] is not None:
-                ts = datetime.fromtimestamp(timestamps[i], tz=TZ_NY)
+                # Yahoo devuelve inicio de vela → sumar 1h para mostrar cierre
+                ts_open  = datetime.fromtimestamp(timestamps[i], tz=TZ_NY)
+                ts_close = ts_open + timedelta(hours=1)
+                ts_ar    = ts_close.astimezone(TZ_AR)
+
                 return {
-                    "ticker":    ticker,
-                    "market":    market,
-                    "currency":  "ARS" if market == "arg" else meta.get("currency", "USD"),
-                    "open":      float(opens[i]),
-                    "high":      float(highs[i]),
-                    "low":       float(lows[i]),
-                    "close":     float(closes[i]),
-                    "volume":    int(volumes[i]) if volumes[i] else 0,
-                    "timestamp": ts.strftime("%d/%m %H:%M ET"),
+                    "ticker":       ticker,
+                    "market":       market,
+                    "currency":     "ARS" if market == "arg" else meta.get("currency", "USD"),
+                    "open":         float(opens[i]),
+                    "high":         float(highs[i]),
+                    "low":          float(lows[i]),
+                    "close":        float(closes[i]),
+                    "volume":       int(volumes[i]) if volumes[i] else 0,
+                    # Mostrar hora de cierre en ET y AR
+                    "timestamp":    ts_close.strftime("%d/%m %H:%M ET"),
+                    "timestamp_ar": ts_ar.strftime("%d/%m %H:%M AR"),
                 }
         return None
 
@@ -221,9 +249,9 @@ def get_current_price(ticker: str, market: str) -> dict | None:
         if not result:
             return None
 
-        meta  = result[0].get("meta", {})
-        price = meta.get("regularMarketPrice", 0)
-        prev  = meta.get("chartPreviousClose", 0) or meta.get("previousClose", 0)
+        meta   = result[0].get("meta", {})
+        price  = meta.get("regularMarketPrice", 0)
+        prev   = meta.get("chartPreviousClose", 0) or meta.get("previousClose", 0)
         change = price - prev if prev else 0
         pct    = (change / prev * 100) if prev else 0
 
@@ -241,7 +269,7 @@ def get_current_price(ticker: str, market: str) -> dict | None:
 
 
 def detect_market(ticker: str) -> str:
-    """Detecta mercado por ticker."""
+    """Detecta mercado por ticker conocido."""
     AR_TICKERS = {
         "GGAL","YPFD","PAMP","TXAR","ALUA","BBAR","BMA","BYMA",
         "CEPU","CRES","CVH","EDN","HARG","LOMA","METR","MIRG",
@@ -249,10 +277,7 @@ def detect_market(ticker: str) -> str:
         "IRSA","CADO","GBAN","BOLT","COME","DGCU2","FRAN","GCLA",
         "INVJ","LONG","PATA","RICH","SEMI"
     }
-    ticker_up = ticker.upper().replace(".BA", "")
-    if ticker_up in AR_TICKERS:
-        return "arg"
-    return "usa"
+    return "arg" if ticker.upper().replace(".BA", "") in AR_TICKERS else "usa"
 
 
 # ══════════════════════════════════════════════════════
@@ -412,8 +437,9 @@ def format_alerta_disparada(alert: dict, candle: dict) -> str:
         f"📊 High / Low:      {fmt_price(candle['high'], cur)} / {fmt_price(candle['low'], cur)}\n"
         f"📋 Open:            {fmt_price(candle['open'], cur)}\n"
         f"📦 Volumen:         {candle['volume']:,}\n"
-        f"🕐 Vela cerrada:    {candle['timestamp']}\n\n"
-        f"⏰ {datetime.now(TZ_NY).strftime('%d/%m/%Y %H:%M ET')}"
+        f"🕐 Vela cerrada:    {candle['timestamp']} / {candle['timestamp_ar']}\n\n"
+        f"⏰ {datetime.now(TZ_NY).strftime('%d/%m/%Y %H:%M ET')} / "
+        f"{datetime.now(TZ_AR).strftime('%H:%M AR')}"
     )
 
 
@@ -422,7 +448,7 @@ AYUDA = (
     "Las alertas se disparan al CIERRE\n"
     "de cada vela de 1 hora (horario NYSE)\n\n"
     "🕯 Cierres de vela (hora Argentina):\n"
-    "   Verano USA:  11:30, 12:30 ... 17:30\n"
+    "   Verano USA:   11:30, 12:30 ... 17:30\n"
     "   Invierno USA: 12:30, 13:30 ... 18:30\n\n"
     "Comandos:\n\n"
     "🔔 /alerta GGAL menor 1500\n"
@@ -483,14 +509,16 @@ def process_updates():
                     "chat_id":   chat_id,
                 })
 
-                cur   = "ARS" if market == "arg" else "USD"
-                emoji = "📈" if condition == "mayor" else "📉"
+                cur     = "ARS" if market == "arg" else "USD"
+                emoji   = "📈" if condition == "mayor" else "📉"
+                proximo = next_candle_close_ar()
                 answer_callback(cb_id, f"✅ Alerta #{aid} guardada!")
                 edit_message(chat_id, msg_id,
                     f"✅ Alerta #{aid} guardada!\n\n"
                     f"{emoji} {ticker} — {market_label(market)}\n"
                     f"Avisame cuando vela 1h {condition} a {fmt_price(target, cur)}\n\n"
-                    f"Te aviso al próximo cierre de vela si se dispara 🔔"
+                    f"⏰ Próximo chequeo: {proximo}\n\n"
+                    f"Te aviso si se dispara 🔔"
                 )
                 print(f"   ✅ Alerta #{aid}: {ticker} {condition} {target} en {market}")
             continue
@@ -540,14 +568,12 @@ def process_updates():
             candle = get_last_closed_candle(ticker, market)
 
             if not candle:
-                # Intentar el otro mercado
                 other  = "usa" if market == "arg" else "arg"
                 candle2 = get_last_closed_candle(ticker, other)
                 if candle2:
-                    # Existe en ambos → preguntar con botones
                     buttons = [
-                        [{"text": "🇦🇷 BYMA (pesos)",        "callback_data": f"market:arg:{ticker}:{target}:{condition}"}],
-                        [{"text": "🇺🇸 NYSE/ADR (dólares)",  "callback_data": f"market:usa:{ticker}:{target}:{condition}"}],
+                        [{"text": "🇦🇷 BYMA (pesos)",       "callback_data": f"market:arg:{ticker}:{target}:{condition}"}],
+                        [{"text": "🇺🇸 NYSE/ADR (dólares)", "callback_data": f"market:usa:{ticker}:{target}:{condition}"}],
                     ]
                     send_telegram(
                         f"📊 '{ticker}' puede cotizar en varios mercados.\n"
@@ -565,9 +591,10 @@ def process_updates():
                     )
                 continue
 
-            aid   = next_id(alerts)
-            cur   = candle["currency"]
-            emoji = "📈" if condition == "mayor" else "📉"
+            aid     = next_id(alerts)
+            cur     = candle["currency"]
+            emoji   = "📈" if condition == "mayor" else "📉"
+            proximo = next_candle_close_ar()
 
             alerts.append({
                 "id":        aid,
@@ -580,15 +607,13 @@ def process_updates():
                 "chat_id":   chat_id,
             })
 
-            # Mostrar próximo cierre de vela en hora AR
-            proximo = next_candle_close_ar()
-
             send_telegram(
                 f"✅ Alerta #{aid} guardada!\n\n"
                 f"{emoji} {ticker} — {market_label(market)}\n"
                 f"Avisame cuando vela 1h {condition} a {fmt_price(target, cur)}\n\n"
-                f"🕯 Última vela cerrada: {fmt_price(candle['close'], cur)} ({candle['timestamp']})\n"
-                f"⏰ Próximo chequeo: ~{proximo} (hora AR)\n\n"
+                f"🕯 Última vela cerrada: {fmt_price(candle['close'], cur)}\n"
+                f"   {candle['timestamp']} / {candle['timestamp_ar']}\n\n"
+                f"⏰ Próximo chequeo: {proximo}\n\n"
                 f"Te aviso si se dispara 🔔",
                 chat_id
             )
@@ -624,15 +649,17 @@ def process_updates():
 
             if candle:
                 msg_text += (
-                    f"\n🕯 Última vela 1h ({candle['timestamp']})\n"
+                    f"\n🕯 Última vela 1h cerrada\n"
+                    f"   {candle['timestamp']} / {candle['timestamp_ar']}\n"
                     f"Cierre: {fmt_price(candle['close'], cur)}\n"
                     f"High:   {fmt_price(candle['high'],  cur)}\n"
                     f"Low:    {fmt_price(candle['low'],   cur)}\n"
                     f"Open:   {fmt_price(candle['open'],  cur)}\n"
                 )
 
-            now_ar_str = datetime.now(ZoneInfo("America/Argentina/Buenos_Aires")).strftime("%H:%M AR")
-            msg_text  += f"\n🕐 {datetime.now(TZ_NY).strftime('%H:%M ET')} / {now_ar_str}"
+            now_et = datetime.now(TZ_NY)
+            now_ar = datetime.now(TZ_AR)
+            msg_text += f"\n🕐 {now_et.strftime('%H:%M ET')} / {now_ar.strftime('%H:%M AR')}"
             send_telegram(msg_text, chat_id)
 
         # ── /lista ──
@@ -708,10 +735,9 @@ def process_updates():
 
 def check_candle_closes():
     now_et        = now_ny()
+    now_ar        = datetime.now(TZ_AR)
     closed, closed_at = candle_just_closed()
 
-    # Hora Argentina para el log
-    now_ar = datetime.now(ZoneInfo("America/Argentina/Buenos_Aires"))
     print(f"\n🕐 ET: {now_et.strftime('%H:%M')}  |  AR: {now_ar.strftime('%H:%M')}")
 
     if not closed:
@@ -720,10 +746,14 @@ def check_candle_closes():
         elif not is_market_open():
             print("   💤 Mercado cerrado.")
         else:
-            print("   ⏳ Esperando cierre de vela (cierran a los :30 de cada hora ET)")
+            print("   ⏳ Esperando cierre de vela (cierran a los :30 ET)")
         return
 
-    print(f"   🕯 Vela cerrada a las {closed_at.strftime('%H:%M ET')} ({now_ar.strftime('%H:%M AR')}) — chequeando alertas...")
+    closed_ar = closed_at.astimezone(TZ_AR)
+    print(
+        f"   🕯 Vela cerrada: {closed_at.strftime('%H:%M ET')} / "
+        f"{closed_ar.strftime('%H:%M AR')} — chequeando alertas..."
+    )
 
     alerts     = load_alerts()
     pendientes = [a for a in alerts if not a.get("triggered", False)]
@@ -752,7 +782,11 @@ def check_candle_closes():
         target    = float(alert["target"])
         cur       = candle["currency"]
 
-        print(f"   #{alert.get('id','?')} {ticker}: cierre {fmt_price(close, cur)} — objetivo {condition} {fmt_price(target, cur)}")
+        print(
+            f"   #{alert.get('id','?')} {ticker}: "
+            f"cierre {fmt_price(close, cur)} — "
+            f"objetivo {condition} {fmt_price(target, cur)}"
+        )
 
         fired = (condition == "mayor" and close >= target) or \
                 (condition == "menor" and close <= target)
@@ -781,10 +815,10 @@ if __name__ == "__main__":
         sys.exit(1)
 
     now_et = now_ny()
-    now_ar = datetime.now(ZoneInfo("America/Argentina/Buenos_Aires"))
+    now_ar = datetime.now(TZ_AR)
 
-    print(f"🕐 Hora ET: {now_et.strftime('%d/%m/%Y %H:%M ET')}")
-    print(f"🕐 Hora AR: {now_ar.strftime('%d/%m/%Y %H:%M AR')}")
+    print(f"🕐 ET: {now_et.strftime('%d/%m/%Y %H:%M ET')}")
+    print(f"🕐 AR: {now_ar.strftime('%d/%m/%Y %H:%M AR')}")
     print(f"🏛 Mercado NYSE: {'ABIERTO ✅' if is_market_open() else 'CERRADO 💤'}\n")
 
     print("📲 Procesando mensajes de Telegram...")
