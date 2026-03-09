@@ -2,8 +2,13 @@ name: Chequear Alertas de Acciones
 
 on:
   schedule:
-    - cron: '*/5 * * * *'
+    - cron: '* * * * *'   # cada minuto
   workflow_dispatch:
+
+# Solo un workflow corre a la vez — si hay otro en curso, espera
+concurrency:
+  group: alertas-bot
+  cancel-in-progress: false
 
 jobs:
   check:
@@ -23,7 +28,7 @@ jobs:
           python-version: '3.11'
 
       - name: 📦 Instalar dependencias
-        run: pip install requests
+        run: pip install requests tzdata
 
       - name: 🔔 Leer comandos y chequear alertas
         env:
@@ -36,6 +41,6 @@ jobs:
         run: |
           git config user.name "AlertasBot"
           git config user.email "bot@alertas.com"
-          git add alerts.json tg_offset.txt || true
+          git add alerts.json tg_offset.txt last_run.txt || true
           git diff --staged --quiet || git commit -m "🔔 Actualizar alertas"
           git push
