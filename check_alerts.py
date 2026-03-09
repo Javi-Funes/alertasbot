@@ -599,7 +599,7 @@ def process_updates():
             # Extraer nota entre paréntesis si existe
             # Ej: "/alerta AR:TRAN mayor 4000 (vender posicion)"
             import re
-            nota_match = re.search(r'\((.+?)\)', text)
+            nota_match = re.search(r'\(\s*(.+?)\s*\)', text)
             nota       = nota_match.group(1).strip() if nota_match else None
             # Limpiar el texto de la nota para parsear el comando
             clean_text = re.sub(r'\s*\(.+?\)', '', text).strip()
@@ -771,7 +771,7 @@ def process_updates():
 
                 # Extraer nota entre paréntesis si existe en la línea
                 import re
-                nota_match = re.search(r'\((.+?)\)', line)
+                nota_match = re.search(r'\(\s*(.+?)\s*\)', line)
                 nota_linea = nota_match.group(1).strip() if nota_match else None
 
                 aid = next_id(alerts)
