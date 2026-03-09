@@ -43,4 +43,5 @@ jobs:
           git config user.email "bot@alertas.com"
           git add alerts.json tg_offset.txt last_run.txt || true
           git diff --staged --quiet || git commit -m "🔔 Actualizar alertas"
+          git pull --rebase origin main
           git push
