@@ -239,5 +239,16 @@
     "created": "09/03 14:28 ET",
     "chat_id": "972423316",
     "nota": "comprar"
+  },
+  {
+    "id": 25,
+    "ticker": "IBIT",
+    "condition": "menor",
+    "target": 30.0,
+    "market": "usa",
+    "triggered": false,
+    "created": "09/03 15:12 ET",
+    "chat_id": "972423316",
+    "nota": "comprar"
   }
 ]
