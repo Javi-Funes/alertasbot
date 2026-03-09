@@ -284,7 +284,7 @@ def parse_ticker(raw: str) -> tuple[str, str | None]:
         US:  → mercado USA (NYSE/NASDAQ)
         AR:  → mercado Argentina (BYMA)
     """
-    raw = raw.upper().strip()
+    raw = raw.upper().strip()  # convierte TODO a mayúsculas: "us:axp" → "US:AXP"
 
     if ":" in raw:
         prefix, ticker = raw.split(":", 1)
@@ -586,17 +586,9 @@ def process_updates():
 
         # ── /alerta ──
         if cmd == "/alerta":
-            if len(parts) != 4:
-                send_telegram(
-                    "❌ Formato correcto:\n\n"
-                    "/alerta GGAL menor 1500\n"
-                    "/alerta US:AXP mayor 294\n"
-                    "/alerta AR:METR menor 1450",
-                    chat_id
-                )
-                continue
-
             # Extraer nota entre paréntesis si existe
+            # IMPORTANTE: hacerlo ANTES de validar longitud
+            # porque "US:AXP mayor 300 (comprar)" tiene 5+ partes
             # Ej: "/alerta AR:TRAN mayor 4000 (vender posicion)"
             import re
             nota_match = re.search(r'\(\s*(.+?)\s*\)', text)
