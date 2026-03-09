@@ -434,17 +434,19 @@ def format_lista(alerts: list) -> str:
     if activas:
         msg += "🟢 Activas:\n"
         for a in activas:
-            cur   = "ARS" if a.get("market") == "arg" else "USD"
-            emoji = "📈" if a["condition"] == "mayor" else "📉"
-            mkt   = market_emoji(a.get("market", ""))
-            msg  += f"  #{a['id']} {emoji} {a['ticker']} {a['condition']} {fmt_price(a['target'], cur)} {mkt}\n"
+            cur     = "ARS" if a.get("market") == "arg" else "USD"
+            emoji   = "📈" if a["condition"] == "mayor" else "📉"
+            mkt     = market_emoji(a.get("market", ""))
+            nota    = f" 💬 {a['nota']}" if a.get("nota") else ""
+            msg    += f"  #{a['id']} {emoji} {a['ticker']} {a['condition']} {fmt_price(a['target'], cur)} {mkt}{nota}\n"
     if disparadas:
         msg += "\n✅ Ya disparadas:\n"
         for a in disparadas:
-            cur   = "ARS" if a.get("market") == "arg" else "USD"
-            emoji = "📈" if a["condition"] == "mayor" else "📉"
-            mkt   = market_emoji(a.get("market", ""))
-            msg  += f"  #{a['id']} {emoji} {a['ticker']} {a['condition']} {fmt_price(a['target'], cur)} {mkt}\n"
+            cur     = "ARS" if a.get("market") == "arg" else "USD"
+            emoji   = "📈" if a["condition"] == "mayor" else "📉"
+            mkt     = market_emoji(a.get("market", ""))
+            nota    = f" 💬 {a['nota']}" if a.get("nota") else ""
+            msg    += f"  #{a['id']} {emoji} {a['ticker']} {a['condition']} {fmt_price(a['target'], cur)} {mkt}{nota}\n"
 
     msg += "\nPara borrar: /borrar #2"
     return msg
@@ -460,10 +462,13 @@ def format_alerta_disparada(alert: dict, candle: dict) -> str:
     accion    = f"{ticker} superó tu objetivo" if condition == "mayor" else f"{ticker} bajó a tu objetivo"
     emoji     = "📈" if condition == "mayor" else "📉"
 
+    nota = f"\n💬 Nota: {alert['nota']}" if alert.get("nota") else ""
+
     return (
         f"🚨 ALERTA #{aid} DISPARADA!\n"
         f"{'─' * 24}\n\n"
-        f"{emoji} {accion}\n\n"
+        f"{emoji} {accion}\n"
+        f"{nota}\n\n"
         f"🏛 Mercado:         {market_label(candle['market'])}\n"
         f"🎯 Tu objetivo:     {condition} a {fmt_price(target, cur)}\n"
         f"🕯 Cierre de vela:  {fmt_price(close, cur)}\n"
@@ -591,31 +596,38 @@ def process_updates():
                 )
                 continue
 
+            # Extraer nota entre paréntesis si existe
+            # Ej: "/alerta AR:TRAN mayor 4000 (vender posicion)"
+            import re
+            nota_match = re.search(r'\((.+?)\)', text)
+            nota       = nota_match.group(1).strip() if nota_match else None
+            # Limpiar el texto de la nota para parsear el comando
+            clean_text = re.sub(r'\s*\(.+?\)', '', text).strip()
+            clean_parts = clean_text.split()
+
             # Tolerancia: "US: GGAL menor 28" → unir "US:" + "GGAL"
-            # Si parts[1] termina en ":" y parts[2] no es mayor/menor,
-            # asumimos que es el ticker separado por espacio
-            if parts[1].endswith(":") and len(parts) == 5 and parts[2].upper() not in ("MAYOR", "MENOR"):
-                raw_ticker = parts[1] + parts[2]
-                condition  = parts[3].lower()
+            if clean_parts[1].endswith(":") and len(clean_parts) == 5 and clean_parts[2].upper() not in ("MAYOR", "MENOR"):
+                raw_ticker = clean_parts[1] + clean_parts[2]
+                condition  = clean_parts[3].lower()
                 try:
-                    target = float(parts[4].replace(",", "."))
+                    target = float(clean_parts[4].replace(",", "."))
                 except:
                     send_telegram("❌ El precio debe ser un número. Ej: 1500 o 210.50", chat_id)
                     continue
-            elif len(parts) != 4:
+            elif len(clean_parts) != 4:
                 send_telegram(
                     "❌ Formato correcto:\n\n"
                     "/alerta GGAL menor 1500\n"
                     "/alerta US:AXP mayor 294\n"
-                    "/alerta AR:METR menor 1450",
+                    "/alerta AR:TRAN mayor 4000 (vender posicion)",
                     chat_id
                 )
                 continue
             else:
-                raw_ticker = parts[1]
-                condition  = parts[2].lower()
+                raw_ticker = clean_parts[1]
+                condition  = clean_parts[2].lower()
                 try:
-                    target = float(parts[3].replace(",", "."))
+                    target = float(clean_parts[3].replace(",", "."))
                 except:
                     send_telegram("❌ El precio debe ser un número. Ej: 1500 o 210.50", chat_id)
                     continue
@@ -673,12 +685,15 @@ def process_updates():
                 "triggered": False,
                 "created":   datetime.now(TZ_NY).strftime("%d/%m %H:%M ET"),
                 "chat_id":   chat_id,
+                "nota":      nota,
             })
 
+            nota_txt = f"\n💬 {nota}" if nota else ""
             send_telegram(
                 f"✅ Alerta #{aid} guardada!\n\n"
                 f"{emoji} {ticker} — {market_label(market)}\n"
-                f"Avisame cuando vela 1h {condition} a {fmt_price(target, cur)}\n\n"
+                f"Avisame cuando vela 1h {condition} a {fmt_price(target, cur)}"
+                f"{nota_txt}\n\n"
                 f"🕯 Última vela cerrada: {fmt_price(candle['close'], cur)}\n"
                 f"   {candle['timestamp']} / {candle['timestamp_ar']}\n\n"
                 f"⏰ Próximo chequeo: {proximo}\n\n"
@@ -754,6 +769,11 @@ def process_updates():
                         errores.append(f"⚠️ No encontré '{ticker}' en Yahoo Finance")
                         continue
 
+                # Extraer nota entre paréntesis si existe en la línea
+                import re
+                nota_match = re.search(r'\((.+?)\)', line)
+                nota_linea = nota_match.group(1).strip() if nota_match else None
+
                 aid = next_id(alerts)
                 alerts.append({
                     "id":        aid,
@@ -764,11 +784,13 @@ def process_updates():
                     "triggered": False,
                     "created":   datetime.now(TZ_NY).strftime("%d/%m %H:%M ET"),
                     "chat_id":   chat_id,
+                    "nota":      nota_linea,
                 })
 
-                cur   = "ARS" if market == "arg" else "USD"
-                emoji = "📈" if condition == "mayor" else "📉"
-                cargadas.append(f"  #{aid} {emoji} {ticker} {condition} {fmt_price(target, cur)} {market_emoji(market)}")
+                cur      = "ARS" if market == "arg" else "USD"
+                emoji    = "📈" if condition == "mayor" else "📉"
+                nota_str = f" 💬 {nota_linea}" if nota_linea else ""
+                cargadas.append(f"  #{aid} {emoji} {ticker} {condition} {fmt_price(target, cur)} {market_emoji(market)}{nota_str}")
 
             # Respuesta resumen
             resumen = f"✅ {len(cargadas)} alerta(s) cargada(s):\n"
