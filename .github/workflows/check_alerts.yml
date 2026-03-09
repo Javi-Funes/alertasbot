@@ -2,7 +2,7 @@ name: Chequear Alertas de Acciones
 
 on:
   schedule:
-    - cron: '* * * * *'   # cada minuto
+    - cron: '*/5 * * * *'   # cada 5 minutos
   workflow_dispatch:
 
 # Solo un workflow corre a la vez — si hay otro en curso, espera
