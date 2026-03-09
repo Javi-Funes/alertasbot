@@ -205,9 +205,10 @@
     "condition": "mayor",
     "target": 300.0,
     "market": "usa",
-    "triggered": false,
+    "triggered": true,
     "created": "09/03 09:38 ET",
-    "chat_id": "972423316"
+    "chat_id": "972423316",
+    "triggered_at": "09/03/2026 16:35 ET"
   },
   {
     "id": 22,
@@ -235,10 +236,11 @@
     "condition": "mayor",
     "target": 300.01,
     "market": "usa",
-    "triggered": false,
+    "triggered": true,
     "created": "09/03 14:28 ET",
     "chat_id": "972423316",
-    "nota": "comprar"
+    "nota": "comprar",
+    "triggered_at": "09/03/2026 16:35 ET"
   },
   {
     "id": 25,
