@@ -208,5 +208,25 @@
     "triggered": false,
     "created": "09/03 09:38 ET",
     "chat_id": "972423316"
+  },
+  {
+    "id": 22,
+    "ticker": "TRAN",
+    "condition": "menor",
+    "target": 4000.0,
+    "market": "arg",
+    "triggered": false,
+    "created": "09/03 10:55 ET",
+    "chat_id": "972423316"
+  },
+  {
+    "id": 23,
+    "ticker": "TRAN",
+    "condition": "mayor",
+    "target": 4250.0,
+    "market": "arg",
+    "triggered": false,
+    "created": "09/03 10:55 ET",
+    "chat_id": "972423316"
   }
 ]
