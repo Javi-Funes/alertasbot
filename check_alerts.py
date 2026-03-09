@@ -993,6 +993,35 @@ def check_candle_closes():
 #  🚀  MAIN
 # ══════════════════════════════════════════════════════
 
+LAST_RUN_FILE = Path("last_run.txt")
+MAX_INACTIVITY_MIN = 10  # alerta si pasaron más de 10 minutos
+
+
+def check_inactivity():
+    """Avisa a Telegram si el bot estuvo inactivo más de MAX_INACTIVITY_MIN minutos."""
+    now_ar = datetime.now(TZ_AR)
+
+    if LAST_RUN_FILE.exists():
+        try:
+            last_str = LAST_RUN_FILE.read_text().strip()
+            last_run = datetime.fromisoformat(last_str)
+            diff_min = (now_ar - last_run).total_seconds() / 60
+
+            if diff_min > MAX_INACTIVITY_MIN:
+                send_telegram(
+                    f"⚠️ El bot estuvo inactivo {int(diff_min)} minutos\n\n"
+                    f"Última ejecución: {last_run.strftime('%d/%m %H:%M AR')}\n"
+                    f"Ahora:            {now_ar.strftime('%d/%m %H:%M AR')}\n\n"
+                    f"Revisá GitHub Actions si esto se repite."
+                )
+                print(f"⚠️ Inactividad detectada: {int(diff_min)} minutos")
+        except Exception as e:
+            print(f"⚠️ Error leyendo last_run: {e}")
+
+    # Guardar hora actual
+    LAST_RUN_FILE.write_text(now_ar.isoformat())
+
+
 if __name__ == "__main__":
     if not BOT_TOKEN or not CHAT_ID:
         print("❌ BOT_TOKEN o CHAT_ID no configurados")
@@ -1005,7 +1034,10 @@ if __name__ == "__main__":
     print(f"🕐 AR: {now_ar.strftime('%d/%m/%Y %H:%M AR')}")
     print(f"🏛 Mercado NYSE: {'ABIERTO ✅' if is_market_open() else 'CERRADO 💤'}\n")
 
-    print("📲 Procesando mensajes de Telegram...")
+    print("🔍 Verificando inactividad...")
+    check_inactivity()
+
+    print("\n📲 Procesando mensajes de Telegram...")
     process_updates()
 
     print("\n🔔 Chequeando cierres de velas...")
