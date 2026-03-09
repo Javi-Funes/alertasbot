@@ -198,5 +198,15 @@
     "triggered": false,
     "created": "08/03 19:06 ET",
     "chat_id": "972423316"
+  },
+  {
+    "id": 21,
+    "ticker": "AXP",
+    "condition": "mayor",
+    "target": 300.0,
+    "market": "usa",
+    "triggered": false,
+    "created": "09/03 09:38 ET",
+    "chat_id": "972423316"
   }
 ]
